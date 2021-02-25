@@ -9,9 +9,16 @@
 % then this is a fixed parameter for the entire pipeline. 
 
 % Subjects 
-subjects = {'sub-patient002', 'sub-patient003', ...
-    'sub-patient005', 'sub-patient006', ...
-    'sub-patient007', 'sub-patient008'};
+% subjects = {'sub-patient002', 'sub-patient003', ...
+%     'sub-patient005', 'sub-patient006', ...
+%     'sub-patient007', 'sub-patient008', 'sub-patient012'};
+ subjects = {'sub-32', 'sub-36', 'sub-37', 'sub-38', ...
+     'sub-39', 'sub-40', 'sub-43', 'sub-44', 'sub-45', ...
+     'sub-46', 'sub-47', 'sub-48', 'sub-49', 'sub-50'}; 
+ 
+% Dataset
+% 'Mig_N2Treat', 'NODDI';
+dataset = 'NODDI'; 
 
 % Task          -
 % 'task-rest','task-calib'
@@ -27,7 +34,17 @@ rsn_method = 'ic_dmn';
 
 % EEG TF-decomposition method
 % 'wavelet','welch'
-tf_method = 'wavelet';               
+tf_method = 'wavelet';    
+
+% Method for statistical filtering 
+% of the connectivity matrices 
+% 'analytical', 'surrogate', 'none' 
+stat_filt_method = 'analytical';
+
+% Method for generation of the 
+% connectivity surrogates 
+% 'block_shift', 'phase_shuffle', ''
+surr_method = ''; 
 
 % BOLD deconvolution method
 % 'voxel_wise','time_series'
@@ -35,20 +52,15 @@ deconv_method = 'time_series';
 
 % EEG feature decomposition metrics
 % 'lc4','lc6','rmsf','tp'
-metrics = {'lc4', 'icoh_wnd', 'rmsf', 'tp'};
-
-% Surrogate method for statistical
-% filtering of the connectivity
-% 'block_shuffle', 'phase_shuffle'
-surrogate_method = 'block_shuffle';
+metrics = {'lc4', 'rmsf', 'tp'};
 
 % Regression models 
 % 'l21_1','elasticnet'
-reg_models = {'elasticnet', 'l21_1'};   
+reg_models = {'elasticnet'};   
 
 % Cross-validation method
 % 'nondep','regular','blocked'
-cv_method = 'blocked'; 
+cv_method = 'nondep'; 
 
 % Threshold of the DMN mask
 dmn_thr = 1;
@@ -81,7 +93,7 @@ highpass_filter = 1;
 lowpass_filter = 40;         
 
 % Windows for TF decomposition 
-tf_sliding_window_seconds = 4;  
+tf_sliding_win_seconds = 4;  
 tf_wavelet_kernel_seconds = 2; 
 
 % Number of windows for 
@@ -91,14 +103,14 @@ n_wins_welch = 8;
 % Number of surrogates for 
 % statistical filtering of
 % the connectivity estimates 
-n_surrogates = 200;
+n_surrs = 50;
 
 % Window for HRF convolution 
 hrf_kernel_seconds = 32;       
 
 % Supported power and connectivity metrics 
 power_metrics = {'lc6','lc4','rmsf','tp'};
-connectivity_metrics = {'icoh_wnd','icoh_cc'};
+connectivity_metrics = {'icoh_wnd','icoh_bc'};
 
 % Confidence level for the
 % auto-regressive model used
@@ -231,50 +243,50 @@ data_path = {subjects,task,sub_task};
 method_path = {rsn_method,tf_method,reg_models,cv_method};
 
 % EEG/BOLD Raw data
-path.eeg_raw =              strcat('DATA/',fullfile(data_path{:}),'/eeg');
-path.bold_raw =             strcat('DATA/',fullfile(data_path{:}),'/func');
-path.bold_img_raw =         strcat('DATA/',fullfile(data_path{:}),'/func');
+path.eeg_raw =              strcat(dataset, '/DATA/',fullfile(data_path{:}),'/eeg');
+path.bold_raw =             strcat(dataset, '/DATA/',fullfile(data_path{:}),'/func');
+path.bold_img_raw =         strcat(dataset, '/DATA/',fullfile(data_path{:}),'/func');
 
 % EEG/BOLD markers
-path.eeg_markers =          strcat('DATA/',fullfile(data_path{:}),'/eeg');
-path.bold_markers =         strcat('DATA/GROUP/',fullfile...
+path.eeg_markers =          strcat(dataset, '/DATA/',fullfile(data_path{:}),'/eeg');
+path.bold_markers =         strcat(dataset, '/DATA/GROUP/',fullfile...
                             (data_path{2:3}),'/eeg');
 
 % EEG/BOLD Processed 
-path.eeg_processed =        strcat('DATA/',fullfile(data_path{:}),'/eeg');
-path.bold_processed =       strcat('DATA/',fullfile(data_path{:}),'/func/', ...
+path.eeg_processed =        strcat(dataset, '/DATA/',fullfile(data_path{:}),'/eeg');
+path.bold_processed =       strcat(dataset, '/DATA/',fullfile(data_path{:}),'/func/', ...
                             rsn_method);
-path.bold_img_processed =   strcat('DATA/',fullfile(data_path{:}),'/func');                        
+path.bold_img_processed =   strcat(dataset, '/DATA/',fullfile(data_path{:}),'/func');                        
 
 % EEG/BOLD Derivatives 
-path.eeg_feature =          strcat('DERIVATIVES/',fullfile(data_path{:}), ... 
+path.eeg_feature =          strcat(dataset, '/DERIVATIVES/',fullfile(data_path{:}), ... 
                             '/eeg/',method_path{2});
-path.bold_deconv =          strcat('DERIVATIVES/',fullfile(data_path{:}), ...
+path.bold_deconv =          strcat(dataset, '/DERIVATIVES/',fullfile(data_path{:}), ...
                             '/func/',method_path{1});
-path.bold_img_deconv =      strcat('DERIVATIVES/',fullfile(data_path{:}), ...
+path.bold_img_deconv =      strcat(dataset, '/DERIVATIVES/',fullfile(data_path{:}), ...
                             '/func/',method_path{1});
 
 % EEG Frequency 
-path.frequency =            strcat('RESULTS/',fullfile(data_path{:}), ...
+path.frequency =            strcat(dataset, '/RESULTS/',fullfile(data_path{:}), ...
                             'eeg/frequency_analysis/',method_path{1});
 
 % EEG-BOLD Correlation 
-path.correlation =          strcat('RESULTS/',fullfile(data_path{:}), ...
+path.correlation =          strcat(dataset, '/RESULTS/',fullfile(data_path{:}), ...
                             '/correlation_analysis/', ...
                         	fullfile(method_path{1:2}));
-path.correlation_group =   strcat('RESULTS/GROUP/', ...
+path.correlation_group =   strcat(dataset, '/RESULTS/GROUP/', ...
                             fullfile(data_path{2:3}), ...
                             '/correlation_analysis/', ...
                             fullfile(method_path{1:2}));
 
 % EEG-BOLD Model
-pre =                       repmat(strcat('RESULTS/', ...
+pre =                       repmat(strcat(dataset, '/RESULTS/', ...
                             fullfile(data_path{:})', ...
                             '/models/'),1,length(reg_models));
 suf =                       repmat(fullfile(method_path{1:3}), ...
                             length(subjects),1);
 path.model =                strcat(pre,suf);
-path.model_group =          strcat('RESULTS/GROUP/', ...
+path.model_group =          strcat(dataset, '/RESULTS/GROUP/', ...
                             fullfile(data_path{2:3}), ...
                             '/models/',fullfile(method_path{:}));
                         
@@ -283,16 +295,16 @@ path.model_group =          strcat('RESULTS/GROUP/', ...
 cat =                       [fullfile(method_path{:}) strcat(fullfile...
                             (method_path{1:2}),'/',strjoin(reg_models, ...
                             '_vs_'),'/',cv_method)];
-path.compare_performance =  strcat('RESULTS/GROUP/', ...
+path.compare_performance =  strcat(dataset, '/RESULTS/GROUP/', ...
                             fullfile(data_path{2:3}), ...
                             '/performance/',cat);                                       
                         
 % Report
-path.report =               strcat('REPORTS/',fullfile(data_path{2:3}), ...
+path.report =               strcat(dataset, '/REPORTS/',fullfile(data_path{2:3}), ...
                             '/',fullfile(method_path{1:2}));
                         
 % Parameters                         
-path.pars =                 strcat('PARS/',fullfile(data_path{2:3}), ...
+path.pars =                 strcat(dataset, '/PARS/',fullfile(data_path{2:3}), ...
                             '/',fullfile(method_path{1:2}));
 
 %------------------------------------------------------------------

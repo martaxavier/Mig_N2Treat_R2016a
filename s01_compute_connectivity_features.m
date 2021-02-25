@@ -3,27 +3,30 @@
 %
 % 	The method here implemented is as follows: 
 %
-%       1)  Time-frequency decomposition of the EEG data at each
-%           channel to obtain the cross-spectrum at each pair of 
-%           channels - and simultaneous downsampling the the EEG
-%           data to the analysis's sampling frequency (welch method)
+%   1)  Estimation of the dynamic functional connectivity through a 
+%       windowing procedure, and simultaneous downsampling of the EEG
+%       data. In each window:
+%           1.1)    Time-frequency decomposition of the EEG data at each 
+%                   channel to obtain the expected cross-spectrum at each
+%                   pair of channels, using the Welch's method
+%           1.2)    Estimation of the specified connectivity metric 
 %
-%       2)  Computation of the specified connectivity metrics from
-%           the cross-spectra and averaging across frequency bands
-%
-%       3)  Convolution of all features with a range of HRFs/ 
-%           shifting of all the features with a range of delays 
-%
-%       4)  Prunning of all features according to match the 
-%           beginning and end of the simultaneous BOLD acquisition/
-%           according to the current task design
-%
-%       6)  Normalization of all EEG features to have 0 mean and 
-%           standard deviation 1
+%   2)  Averaging of the connectomes at each frequency band 
+% 
+%   3)  Estimation of the specified graph measure from the connectomes 
+% 
+%   4)  Convolution of the resulting EEG features with a range of HRFs/
+%       shifting of all the features with a range of delays 
+% 
+%   5)  Prunning of all the features to match the beginning and end of the 
+%       simultaneous BOLD acquisition/according to the current task design
+% 
+%   6)   Normalization of all EEG features to have 0 mean and standard 
+%        deviation 1  
 %
 
 % Intermediate fs (Hz)
-fs = fs_analysis;          
+fs = fs_analysis;      
 
 %------------------------------------------------------------    
 % Go through metrics
@@ -32,18 +35,17 @@ fs = fs_analysis;
 [con_metrics, net_metrics] = get_con_net_metrics(metrics);
 
 for m = 1 : length(con_metrics)
-   
+    
+    % Define current metric
+    con_metric = con_metrics{m};
+    metric = con_metric;
+    get_metric_pars;
     
     %------------------------------------------------------------    
     % Go through subjects
     %------------------------------------------------------------
     for s = 1 : length(subjects)
-        
-        % Define current metric
-        con_metric = con_metrics{m};
-        metric = con_metric;
-        get_metric_pars;
-    
+
         % Define current subject 
         subject = subjects(s);
         
@@ -55,14 +57,14 @@ for m = 1 : length(con_metrics)
         %--------------------------------------------------------- 
 
         % Load eeg dataset of specified subject 
-        load(char(fullfile(path_data_in(s),data_in)));
+        load(fullfile(path_data_in(s), data_in));
         
         % Save chanlocs structure if non existent 
         if ~exist(char(fullfile('PARS','chanlocs.mat')),'file')
             save(char(fullfile('PARS','chanlocs.mat')),'chanlocs');
         end
 
-        first_last = dlmread(char(fullfile(path_markers_in(s),markers_in)));
+        first_last = dlmread(fullfile(path_markers_in(s), markers_in));
         
         my_file = char(fullfile(path_markers_in(s), markers_sub_task_in));
         if exist(my_file,'file')
@@ -83,53 +85,62 @@ for m = 1 : length(con_metrics)
 
         % First and last samples in the new fs
         first = ceil(first_eeg*fs/fs_eeg);
-        last = ceil(last_eeg*fs/fs_eeg);  
+        last = ceil(last_eeg*fs/fs_eeg); 
 
         %---------------------------------------------------------    
-        % TF decomposition to extract the cross-spectrum  
+        % TF decomposition to extract the connectivity spectrum   
         %---------------------------------------------------------
         
-        % Compute the cross-spectrum at each pair of signals, 
-        % throughout time 
-        [cross_spectrum, f_vector] = tf_analysis_cross_spectrum...
-            (data, [f_min f_max], n_freq, n_wins_welch, ...
-            tf_sliding_window_seconds, fs_eeg, fs);
+        disp('... computing the connectomes ...'); 
+        
+        % Compute the cross-spectrum at each pair of signals, throughout
+        % time and update vector of frequencies 
+        [conspec, p_values, f_vector] = tf_analysis_con_spectrum(data, ...
+            [f_min f_max], n_freq, tf_sliding_win_seconds, fs_eeg, ...
+            fs, con_metric, stat_filt_method);
         
         % Update number of time-points 
-         n_pnts = size(cross_spectrum,2);
-        
+         n_pnts = size(conspec,1);        
+           
         %---------------------------------------------------------    
-        % Compute connectivity feature 
-        %---------------------------------------------------------
-        
-        % Compute connectivity metric 
-        conspec = compute_connectivity_metric(cross_spectrum, con_metric);
-        
-        % Average connectivity for each frequency band 
-        conspec_avg = average_frequency(conspec, f_vector, bands);
-        
-        % Turn lower triangular into symmetric connectivity matrix 
-        [conspec_avg] = tril2symmetric(conspec_avg);
-        
-         %---------------------------------------------------------    
-         % Plots and report of connectivity spectrum 
-         %--------------------------------------------------------- 
-
-%         if flag.report ~= 0
-%             report_connectivity_spectrum;
-%         end
-    
-        %---------------------------------------------------------    
-        % Statistical filtering  
+        % Statistical filtering + frequency average 
         %---------------------------------------------------------
 
+        disp('... filtering the connectomes for significance ...');
+        
         % Compute surrogates of the connectivity matrix to perform 
         % statistical filtering and remove non-significant connections 
-%         [conspec_sig, decision_sig, p_thresh_corrected] = ...
-%             statistical_filtering(data, [f_min f_max], n_freq, ...
-%             n_wins_welch, tf_sliding_window_seconds, fs_eeg, fs, ...
-%             con_metric, conspec_avg, surrogate_method, n_surrogates); 
-        conspec_sig = conspec_avg;
+        [conspec_sig, decision_sig, p_values, p_thresh_corrected] = ...
+            statistical_filtering(data, [f_min f_max], n_freq, ...
+            f_vector, tf_sliding_win_seconds, fs_eeg, fs, ...
+            con_metric, conspec, p_values, stat_filt_method, ...
+            surr_method, n_surrs, path_img_out(s));
+        
+        % Average connectivity for each frequency band in case it hasn't
+        % been done yet 
+        if ~strcmp(stat_filt_method, 'surrogate')
+            conspec = average_frequency(conspec, f_vector, bands, 3);
+            p_values = average_frequency(p_values, f_vector, bands, 3); 
+            conspec_sig = average_frequency(conspec_sig, f_vector, bands, 3);
+        end
+  
+        % Convert connectivity matrices into symmetrical matrices
+        % prior to topological filtering and plotting 
+        conspec = vec2tri(conspec, 2, n_chans, 'upper');
+        conspec = tri2symmetric(conspec, 2, 3);
+        conspec(isnan(conspec)) = 0;  
+        
+        % Convert p-value matrices into symmetrical matrices
+        % prior to topological filtering and plotting      
+        p_values = vec2tri(p_values, 2, n_chans, 'upper');
+        p_values = tri2symmetric(p_values, 2, 3);
+        p_values(isnan(p_values)) = 0;
+        
+        % Convert connectivity matrices into symmetrical matrices
+        % prior to topological filtering and plotting 
+        conspec_sig = vec2tri(conspec_sig, 2, n_chans, 'upper');
+        conspec_sig = tri2symmetric(conspec_sig, 2, 3);
+        conspec_sig(isnan(conspec_sig)) = 0;           
         
         %---------------------------------------------------------    
         % Topological filtering  
@@ -137,25 +148,51 @@ for m = 1 : length(con_metrics)
 
         % Perform topological filtering of the connectivity matrix
         % using Orthogonalized Minimal Spanning Trees 
-        [conspec_topo, decision_topo] = ...
-            topological_filtering(conspec_sig); 
+        % Only if the method for statistical filtering is not 
+        % surrogate analysis 
+        if strcmp(stat_filt_method, 'analytical')
+            disp('... topological filtering the connectomes ...');
+            [conspec_topo, decision_topo] = ...
+                topological_filtering(conspec_sig); 
+        else
+            conspec_topo = conspec_sig; 
+            decision_topo = decision_sig;
+        end
+ 
+        %---------------------------------------------------------    
+        % Plots and report of the connectivity matrices   
+        %--------------------------------------------------------- 
+        
+        % Generate images of the estimated 
+        % connectivity matrices and save them 
+        if flag.report ~= 0  
+            disp('... generating and saving plots of connectomes ...');
+            report_connectomes
+        end
+        
+        %---------------------------------------------------------    
+        % Save the connectivity matrices 
+        %--------------------------------------------------------- 
 
         % Save decision matrices and filtered connectivity matrix
         % in the output directory
 %         decision_sig_out = strcat('decision_sig_',con_metric,'.mat');
 %         decision_topo_out = strcat('decision_topo_',con_metric,'.mat');
-%         conspec_out = strcat('conspec_filtered_',con_metric,'.mat');
+%         conspec_sig_out = strcat('conspec_sig_filtered_',con_metric,'.mat');
+%         conspec_topo_out = strcat('conspec_topo_filtered_',con_metric,'.mat');      
 %         save(char(fullfile(char(path_data_out(s), decision_sig_out))), ...
 %             'decision_sig');
 %         save(char(fullfile(path_data_out(s), decision_topo_out)), ...
 %             'decision_topo');
-%         save(char(fullfile(path_data_out(s), conspec_out)), ...
+%         save(char(fullfile(path_data_out(s), conspec_sig_out)), ...
+%             'conspec_sig');
+%         save(char(fullfile(path_data_out(s), conspec_topo_out)), ...
 %             'conspec_topo');
                     
         % Save p-value of connectivity significance, corrected by FDR
 %         p_out = strcat('p_thresh_corrected_', con_metric, '.mat');
 %             save(char(fullfile(char(path_data_out(s), p_out))), ...
-%                 'p_thresh_corrected');
+%                 'p_thresh_corrected');            
 
         %---------------------------------------------------------    
         % Compute network measure 
@@ -169,31 +206,19 @@ for m = 1 : length(con_metrics)
             metric = full_metric;
             get_metric_pars;
             
+            disp(char(strcat('... computing the', {' '}, net_metric, ' ...')));
+        
             eeg_features = compute_network_metric(conspec_topo, ...
                 net_metric); 
-        
-            %---------------------------------------------------------    
-            % Mirror padd features before convolution  
-            %---------------------------------------------------------        
-
-            % Mirror padd the features at a length equal
-            % to the convolution kernal size + 1 (seconds)
-            eeg_features = eeg_features(first:last, :, :, :);
-
-            % Padd features in the pre-direction 
-            padsize = max(first - 1, hrf_kernel_seconds*fs);
-            eeg_features = padarray(eeg_features, ...
-                padsize, 'symmetric', 'pre');
-
-            % Padd features in the post-direction
-            padsize = max(n_pnts - last, hrf_kernel_seconds*fs);
-            eeg_features = padarray(eeg_features, ...
-                padsize, 'symmetric', 'post');
 
             %---------------------------------------------------------    
             % Convolve/delay features 
             %--------------------------------------------------------- 
 
+            disp('... convolving with a range of HRFs ...');
+            
+            eeg_features = eeg_features(first:last, :, :, :);
+                        
             switch eeg_shift
 
                 case 'conv'
@@ -202,7 +227,7 @@ for m = 1 : length(con_metrics)
                     plotting_shift = 'convolved';
 
                     % Convolve features with the specified family of HRFs 
-                    eeg_features_delayed = convolve_features(eeg_features, ...
+                    eeg_features_delayed = convolve_features_fast(eeg_features, ...
                         fs, delays, hrf_kernel_seconds);
 
                     % Permute resulting matrix to have bands at the end
@@ -297,6 +322,7 @@ for m = 1 : length(con_metrics)
             %--------------------------------------------------------- 
             
             if flag.report ~= 0     
+                disp('... generating and saving plots of features ...');
                 report_network_features;
             end
             
@@ -305,9 +331,15 @@ for m = 1 : length(con_metrics)
             %--------------------------------------------------------- 
 
             % Build final feature matrices to be written in file        
-            % Build final feature matrices to be written in file        
             eeg_features_norm = reshape(eeg_features_norm, ...
-                [n_pnts, numel(eeg_features_norm(1, :, :))]);
+                [n_pnts, numel(eeg_features_norm(1, :, :, :))]);
+
+            % Delete the channel pairs that correspond to redundant 
+            % channel pairs 
+            if size(squeeze(dim)) == 4
+                eeg_features_norm = eeg_features_norm(:, logical(repmat...
+                    (tril(ones(n_chans), -1), [1 1 n_bands])));
+            end
 
             if ~isempty(eeg_shift)
 
@@ -333,7 +365,7 @@ for m = 1 : length(con_metrics)
                         data_out_delay));
 
             end 
-
+            
             % Write EEG feature files
             dlmwrite(char(fullfile(path_data_out(s), feature_out)), ...
                 eeg_features_norm);
